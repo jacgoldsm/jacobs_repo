@@ -1,0 +1,554 @@
+---
+title: "Staggered Differences-in-Differences-in-Differences for Evaluating Medicaid Expansion"
+author: "Jacob Goldsmith"
+date: '2020-11-01'
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+  html_document:
+    toc: true
+    theme: united
+    toc_depth: 3
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction
+
+The [2010 Affordable Care Act](https://www.healthcare.gov/glossary/affordable-care-act/) was one of the most significant changes in health care policy since before the second world war. It had two main features aimed at expanding health insurance coverage in the United States: the introduction of heavily subsidized [insurance exchanges](https://www.kff.org/health-reform/fact-sheet/summary-of-the-affordable-care-act/) and a [massive expansion of Medicaid](https://www.healthinsurance.org/glossary/medicaid-expansion/#:~:text=Under%20the%20expansion%2C%20Medicaid%20eligibility,a%205%20percent%20income%20disregard). In addition to these provisions, the ACA also overhauled existing insurance markets, including imposing regulations on how insurance companies set prices and an [individual mandate](https://www.healthcare.gov/fees/fee-for-not-being-covered/) requiring all eligible Americans to obtain coverage. In this post, I want to focus on the Medicaid Expansion, looking at how economists have studied its effects and how methodological changes do or don't affect their findings.
+
+The goal of the Medicaid expansion was, as the name implies, to expand Medicaid. Medicaid is a longstanding program jointly run by the federal government and the states aimed at helping poor or otherwise disadvantaged Americans obtain health care coverage. However, because Medicaid eligibility is determined by the states, the standards for who qualified for Medicaid varied greatly. In many states, people fell into the so-called ["coverage gap"](https://www.healthinsurance.org/faqs/what-is-the-medicaid-coverage-gap-and-who-does-it-affect/). That means that they did not have employer sponsored insurance and were too poor to afford private coverage, but did not qualify for Medicaid.
+
+The Medicaid Expansion provision of the Affordable Care Act addressed that by decreeing that anyone whose income was below 138% of the poverty level would [be eligible](https://www.healthinsurance.org/glossary/medicaid-expansion/#:~:text=Under%20the%20expansion%2C%20Medicaid%20eligibility,a%205%20percent%20income%20disregard). Furthermore, it appropriated funds to subsidize 90% of the cost of that expansion with federal money. Initially, states were required to accept this deal, but in 2012, a [supreme court decision](https://www.healthinsurance.org/faqs/what-is-the-medicaid-coverage-gap-and-who-does-it-affect/) ruled this unconstitutional. 
+
+When the law came into effect at the beginning of 2014, [25 states immediately adopted it](https://www.kff.org/health-reform/state-indicator/state-activity-around-expanding-medicaid-under-the-affordable-care-act/?currentTimeframe=0&sortModel=%7B%22colId%22:%22Location%22,%22sort%22:%22asc%22%7D#). As of November 2020, 12 more have signed on, with three planning on joining in 2021. 
+
+# Existing Research
+
+The [Kaiser Family Foundation](https://www.kff.org/about-us/) has a very nice review of the [existing literature on medicaid expansion](https://www.kff.org/medicaid/report/the-effects-of-medicaid-expansion-under-the-aca-updated-findings-from-a-literature-review/). Their findings are neatly summarized in the graph below:
+
+![](medicaid.png)
+
+In the literature, researchers overwhelmingly find a positive impact of the Medicaid expansion on insurance coverage, the endpoint that I am interested in. This conclusion holds across a wide variety of methods, fields, and exact variables of interest. I want to focus on a particular methodology that many of the researchers use to come to these conclusions. In particular, I want to look at a paper that uses this methodology, how it work, and how it can be extended.
+
+# Data
+
+In this post, I use data from the annual [American Community Survey (ACS)](https://www.census.gov/programs-surveys/acs/?), part of the U.S. Census program. I access microdata from [IPUMS](ipums.org), an organization run from the University of Minnesota that provides access to the Public Use Microdata (PUMS) from the Census. 
+
+The Census Bureau provides [weights](https://www.census.gov/content/dam/Census/library/publications/2010/acs/Chapter_11_RevisedDec2010.pdf) that represent the number of individuals represented by each respondent. The data that I use spans the period from 2008 to 2018, with data from all 50 states and District of Columbia. The data set has 3,429,162 respondents and includes variables on the demographic characteristics of the respondents and what form of health insurance, if any, they are covered by. It is a pseudo-panel/pooled/repeated cross-section dataset, meaning new individuals are sampled each year. I look at two dependent variables: Any health coverage (Y/N) and Medicaid Coverage (Y/N).
+
+# Background
+
+First things first: How did health insurance coverage change over the sample period? Here, I want to look at the time trends in the three variables of interest. I will also break down the trends by various demographic factors to see if that yields any additional insights.
+
+```{r libraries, echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(biglm)
+library(tidyr)
+
+# Session Info, Packages for reproducibility:
+# R version 4.0.3 (2020-10-10)
+# Platform: x86_64-pc-linux-gnu (64-bit)
+# Running under: Debian GNU/Linux 10 (buster)
+# 
+# Matrix products: default
+# BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.8.0
+# LAPACK: /usr/lib/x86_64-linux-gnu/lapack/liblapack.so.3.8.0
+# 
+# locale:
+#  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8       
+#  [4] LC_COLLATE=en_US.UTF-8     LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+#  [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                  LC_ADDRESS=C              
+# [10] LC_TELEPHONE=C             LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+# 
+# attached base packages:
+# [1] stats     graphics  grDevices utils     datasets  methods   base     
+# 
+# other attached packages:
+# [1] biglm_0.9-2.1 DBI_1.1.0     zoo_1.8-8     ggplot2_3.3.2 dplyr_1.0.2  
+# 
+# loaded via a namespace (and not attached):
+#  [1] tinytex_0.28      tidyselect_1.1.0  xfun_0.19         remotes_2.2.0    
+#  [5] purrr_0.3.4       lattice_0.20-41   testthat_3.0.0    colorspace_2.0-0 
+#  [9] vctrs_0.3.6       generics_0.1.0    usethis_2.0.0     htmltools_0.5.0  
+# [13] yaml_2.2.1        rlang_0.4.9       pkgbuild_1.2.0    pillar_1.4.7     
+# [17] glue_1.4.2        withr_2.3.0       bit64_4.0.5       sessioninfo_1.1.1
+# [21] lifecycle_0.2.0   munsell_0.5.0     gtable_0.3.0      devtools_2.3.2   
+# [25] evaluate_0.14     memoise_1.1.0     knitr_1.30        callr_3.5.1      
+# [29] ps_1.5.0          parallel_4.0.3    fansi_0.4.1       Rcpp_1.0.5       
+# [33] scales_1.1.1      desc_1.2.0        pkgload_1.1.0     vroom_1.3.2      
+# [37] lobstr_1.1.1      fs_1.5.0          texreg_1.37.5     bit_4.0.4        
+# [41] digest_0.6.27     processx_3.4.5    stargazer_5.2.2   rprojroot_2.0.2  
+# [45] grid_4.0.3        cli_2.2.0         tools_4.0.3       magrittr_2.0.1   
+# [49] tibble_3.0.4      crayon_1.3.4      pkgconfig_2.0.3   ellipsis_0.3.1   
+# [53] prettyunits_1.1.1 assertthat_0.2.1  rmarkdown_2.6     httr_1.4.2       
+# [57] rstudioapi_0.13   R6_2.5.0          compiler_4.0.3   
+
+
+# CRAN Packages used later in code:
+ # {cdlTools} for state FIPS
+ # {texreg} for regression output tables
+ # {vroom} to quickly load data
+```
+
+```{r initial, include=FALSE, eval=FALSE}
+# This chunk is not evaluated when knitting to save time,
+# but if run it will produce "all_years.csv" eventually
+
+all_years <- vroom::vroom("All_years.csv")
+
+original <- c("California","Connecticut", "Colorado", "Delaware", "District of Columbia",
+              "Maryland", "Massachusetts", "Minnesota", "Nevada", "New Jersey",
+              "Hawaii", "Illinois", "New York", "North Dakota", "Oregon",
+              "Rhode island", "Vermont", "Washington", "West Virginia", "Arizona",
+              "Arkansas", "Kentucky", "Ohio", "New Mexico", "Iowa")
+
+control <- c("Alabama","Florida","Georgia","Kansas","Mississippi","North Carolina",
+             "South Carolina","South Dakota", "Tennessee", "Texas","Wisconsin",
+             "Wyoming")
+
+years <- 2008:2018
+
+states <- c(original, control, "Michigan", "New Hampshire", "Pennsylvania",
+            "Indiana", "Alaska", "Montana", "Louisiana", "Maine",
+            "Idaho", "Utah", "Nebraska", "Oklahoma", "Missouri", "Virginia")
+
+stateyears <- expand.grid(years, states) %>%
+  rename(year = Var1, state = Var2)
+
+
+process_state <- function(year, impyear, month) {
+  case_when(year < impyear ~ 0,
+            year == impyear ~ (13 - month) / 12,
+            TRUE ~ 1)
+}
+
+
+stateyears <- stateyears %>%
+  mutate(expansion = case_when(state %in% original ~ process_state(year, 2014, 1),
+                               state %in% control ~ 0,
+                               state == "Michigan" ~ process_state(year, 2014, 4),
+                               state == "New Hampshire" ~ process_state(year, 2014, 8),
+                               state == "Pennsylvania" ~ process_state(year, 2015, 1),
+                               state == "Indiana" ~ process_state(year, 2015, 2),
+                               state == "Alaska" ~ process_state(year, 2015, 9),
+                               state == "Montana" ~ process_state(year, 2016, 1),
+                               state == "Louisiana" ~ process_state(year, 2016, 7),
+                               state == "Virginia" ~ process_state(year, 2019, 1),
+                               state == "Maine" ~ process_state(year, 2019, 1),
+                               state == "Idaho" ~ process_state(year, 2020, 1),
+                               state == "Utah" ~ process_state(year, 2020, 1),
+                               state == "Nebraska" ~ process_state(year, 2020, 10),
+                               state == "Oklahoma" ~ process_state(year, 2021, 7),
+                               state == "Missouri" ~ process_state(year, 2021, 7),
+                               state == "Virginia" ~ process_state(year, 2021, 1)))
+
+# This inner join takes a long time! (~10 minutes on my machine.)
+all_years <- all_years %>%
+  mutate(state = cdlTools::fips(statefip, to = "Name")) %>%
+  filter(age > 17 & age < 65) %>%
+  inner_join(stateyears, by = c("year", "state"))
+         
+
+
+all_years <- all_years %>%
+   mutate(hcovany = as.integer(hcovany - 1L),
+         hinscaid = as.integer(hinscaid - 1L),
+         hinscare = as.integer(hinscare - 1L),
+         sex = as.integer(sex - 1L),
+         year = as.integer(year),
+         real_income = inctot / cpi99) %>%
+  select(-c(marst, inctot, educd))
+
+vroom::vroom_write(all_years, "all_years.csv")
+```
+
+## Overall
+
+First, I want to see how health insurance coverage has changed over the sample period. After weighting the data to get a representative sample for each year, here I plot the three types of coverage on one set of axes. Since I'm using the entire sample, I weight the coverage variables according to the sample weights in the ACS data.
+
+```{r trend, echo=FALSE, message=FALSE, warning=FALSE}
+all_years <- vroom::vroom("all_years.csv")
+
+# I use weights here for a representative sample, but later analyses
+# that break down by race, sex, etc. require unweighted data,
+# so I just apply weights to the dataset used for plotting, not the original `all_years`.
+combined_year <- all_years %>%
+  group_by(year) %>%
+  summarize(across(c(hcovany, hinscaid), 
+                   ~weighted.mean(.x, w = perwt)))
+
+
+
+long_combined <- combined_year %>%
+  pivot_longer(cols = c(hcovany, hinscaid),
+               names_to = "insurance_type",
+               values_to = "estimate")
+
+# Summary Plot
+ggplot(data = long_combined, mapping = aes(x = year, 
+                                       y = estimate, 
+                                       color = insurance_type)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = "Change in Insurance coverage 2008-2018",
+       x = "Year",
+       y = "Coverage",
+       color = "Insurance Type") +
+  scale_color_hue(labels = c("Any Coverage", "Medicaid")) +
+  scale_x_continuous(breaks = 2008:2018) +
+  theme_bw()
+```
+
+It is clear that the proportion of individuals covered by any form of health insurance has increased over the sample period. In particular, the data see large increases from 2013 to 2014 and from 2014 to 2015. This seems likely to be related to the Affordable Care Act, although it is unclear which specific provisions it can be attributed to.
+
+You can see that overall coverage and Medicaid rates have increased secularly but gradually over the sample period, with Medicaid seeing a larger proportional increase.  Is the larger increase for Medicaid related to the Medicaid expansion? It is not clear from the graph.
+
+## Different Groups
+
+### Race
+
+I am interested in seeing how health insurance trends differ between racial groups. Here, I will focus on the proportion covered by any form of insurance.
+
+There is no ideal way to divide the sample by race. Here, I have elected to divide the data into three groups: white, Black and Indigenous, and Asian American/Pacific Islander (AAPI). All of these classifications elide substantial heterogeneity across different ethnic groups, but creating these classifications balances parsimony and comprehensiveness in terms of detecting and visualizing racial disparities.
+
+```{r race, echo=FALSE, message=FALSE, warning=FALSE}
+
+# These bins are pretty straightforward. They are taken from this table:
+#   RACE		Race [general version]
+#    1		White
+#    2		Black/African American/Negro
+#    3		American Indian or Alaska Native
+#    4		Chinese
+#    5		Japanese
+#    6		Other Asian or Pacific Islander
+#    7		Other race, nec
+#    8		Two major races
+#    9		Three or more major races
+
+race_year <- all_years %>% 
+  mutate(group_race = as.factor(case_when(race == 1 ~ "white",
+                                          race == 2 | race == 3 ~ "Black or Indigenous",
+                                          race == 4 | race == 5 | race == 6 ~ "AAPI"))) %>%
+  group_by(year, group_race) %>%
+  summarize(across(c(hcovany, hinscaid), ~mean(.x))) %>%
+  filter(!is.na(group_race))
+
+ggplot(data = race_year, aes(x = year, y = hcovany, color = group_race)) +
+  geom_point() + 
+  geom_smooth() + 
+  labs(title = "Change in Insurance coverage by Race 2008-2018",
+       x = "Year",
+       y = "Total Coverage",
+       color = "Race") + 
+  scale_x_continuous(breaks = 2008:2018)
+  
+```
+
+First, it is clear that Black and Indigenous people are insured at much lower rates than white and AAPI individuals. Second, we can see that insurance coverage increased substantially from about 2011 to about 2016 for all three racial groups. Finally, it is clear that the gains were larger among Black and Indigenous and AAPI individuals than among whites, to the extent that the AAPI insured rate surpasses the white insured rate during the period. 
+
+### Sex
+
+I also break down how total health coverage has varied by sex:
+
+```{r sex, echo=FALSE, message=FALSE, warning=FALSE}
+# Sex
+sex_year <- all_years %>% 
+  mutate(sex = as.factor(sex)) %>%
+  group_by(year, sex) %>%
+  summarize(across(c(hcovany, hinscaid), ~mean(.x))) %>%
+  filter(!is.na(sex))
+
+ggplot(data = sex_year, aes(x = year, y = hcovany, color = sex)) +
+  geom_point() + 
+  geom_smooth() + 
+  labs(title = "Change in Insurance coverage by Sex 2008-2018",
+       x = "Year",
+       y = "Total Coverage",
+       color = "Sex") + 
+  scale_color_hue(labels = c("Male", "Female")) +
+  scale_x_continuous(breaks = 2008:2018) +
+  theme_bw()
+```
+
+Here, we can see that women are consistently more likely to be covered by heath insurance than men, but the trends appear essentially parallel over the sample period. Visually, it doesn't look as though the Affordable Care Act affected men and women too differently.
+
+### Income
+
+I also break down the trend in terms of income groups. Here, I divide respondents into four groups, based on whether their real income exceeds thresholds corresponding to the quartiles in the data. 
+
+Note that these thresholds are absolute and based on the sample as a whole, not relative to year, and so the relative proportion of people in each group will vary across the years.
+
+```{r income, echo=FALSE, message=FALSE, warning=FALSE}
+
+# By Income
+quantiles <- c(quantile(all_years$real_income, 0.25),
+               quantile(all_years$real_income, 0.50),
+               quantile(all_years$real_income, 0.75))
+
+inc_year <- all_years %>%
+  mutate(income_quartile = as.factor(case_when(
+    real_income <= quantiles[1] ~ "Bottom Quarter",
+    real_income <= quantiles[2] & real_income > quantiles[1] ~ "Second-lowest Quarter",
+    real_income <= quantiles[3] & real_income > quantiles[2] ~ "Second-highest Quarter",
+    real_income >= quantiles[3] ~ "Top Quarter"))) %>%
+  group_by(year, income_quartile) %>%
+  summarize(across(c(hcovany, hinscaid, hinscare), ~mean(.x)))
+
+ggplot(data = inc_year, aes(x = year, y = hcovany, color = income_quartile)) +
+  geom_point() + 
+  geom_smooth() + 
+  labs(title = "Change in Insurance coverage by Income Quartile 2008-2018",
+       x = "Year",
+       y = "Total Coverage",
+       color = "Income Quartile") +
+  scale_x_continuous(breaks = 2008:2018) +
+  theme_bw()
+
+```
+
+From the data, you can see that insurance coverage is highest for individuals with an income level exceeding the sample median income ($42,614). However, the gains across the sample period are relatively small for those income groups, while the bottom and second-lowest income quartiles make large gains, with the insurance coverage in the lowest quartile (< \$13,514) growing almost ten percentage points just from 2011 to 2016.
+
+This could be evidence in favor of the Medicaid Expansion effect, since the program targeted people whose income was less than 133% of the poverty line. On the other hand, any increase in health care coverage would be likely to accrue to these groups since they had the farthest to improve.
+
+# The Paper
+I want look at [Impacts of the Affordable Care Act on Health Insurance Coverage in Medicaid Expansion and Non-Expansion States](https://www.nber.org/system/files/working_papers/w22182/w22182.pdf), an NBER working paper by Charles Courtemanche, James Marton, Benjamin Ukert, Aaron Yelowitz, and Daniela Zapata. This is the paper that does essentially what I do here. 
+
+It uses data on 18-64 year-olds from the ACS taken from 2011 to 2014 to investigate the effect of the Medicaid expansion on insurance coverage. It uses a differences-in-differences specification that exploits variation in (a) which states implemented the Medicaid Expansion in 2014 and (b) the pre-implementation uninsured percentage in a given PUMA area for causal identification. They give their final specification as:
+
+\begin{align}
+y_{iast} &= \gamma_0 + \gamma_1(UNINSURED_{as}*POST_t) + \gamma_2(MEDICAID_s*POST_t) + \\ &\gamma_3(UNINSURED_{as}*MEDICAID_s*POST_t) + \text{CONTROLS} + \epsilon_{iast}
+\end{align}
+
+Here, $a$ is PUMA area, $s$ is state, and $t$ is time. This is what is known as a "Triple Difference" (DDD) model because it takes the *difference* in insurance coverage between states that expanded Medicaid and those that didn't, finds the *difference* in that figure between the pre-expansion years and post-expansion years, and then finds the *difference* in **that** figure between states with a high pre-expansion prevalence of uninsurance and those without.
+
+The idea behind this model is that it controls for most any lurking variables. Suppose that states with a higher uninsured rate were less likely to expand Medicaid but saw a greater increase in insurance because they just had more marginal people susceptible to insurance campaigns. That lurking variable would be captured by $\gamma_1$. Now suppose that states that expanded Medicaid had governments that cared more about health insurance, so they saw larger increases in insurance rates unrelated to the program. That would be captured in $\gamma_2$.
+
+What would have to be true for an omitted variable to affect $\gamma_3$, the variable of interest? Such a variable would have had to make the difference in the change in uninsured rates between expansion vs non expansion states a function of pre-expansion uninsured rates.
+
+In the end, they find that for the PUMA area with an average uninsured rate prior to the Medicaid expansion, being in an expansion state was worth a 2.9 percentage point increase in the proportion of the population with any kind of health insurance.
+
+# My Specification
+
+The biggest weakness, in my view, of this study is that it only looks at one post-expansion year. For many reasons, this is a highly atypical year for health insurance coverage, since it is the year that the major provisions of the ACA went into place.
+
+This has a couple of consequences. First, it makes it hard to establish causality, even with exotic causal inference strategies. The Affordable Care Act was a massive bill with many provisions, and some of them were heavily dependent on the states to implement. Almost universally, the states that implemented the Medicaid Expansion were those that were more friendly towards President Obama and the ACA as a whole. It is easy to imagine that the rollout of other ACA provisions, like state administration of expanded Medicaid programs, could have been smoother in those states. If the impact of these differences was correlated with the existing uninsured rate in a state, this would confound causal inference on the Medicaid expansion.
+
+Second, there is the question of ergodicity. Medicaid in 2014 was not the same as medicaid in 2018, even among states that implemented the expansion. For one thing, the publicity around the ACA and Medicaid expansion was much greater in 2014, which could have made the program more effective. Conversely, [public opinion on the ACA is much higher now than it was when it was implemented](https://www.kff.org/health-reform/poll-finding/5-charts-about-public-opinion-on-the-affordable-care-act-and-the-supreme-court/). That could make ACA programs like the Medicaid expansion get *more* effective in more recent years.
+
+In this post, I look at a much wider time window—the period from 2008 through 2018. This means that the Average Treatment Effect (ATE) will incorporate data from a wider range of years. Hopefully, this will drown out any 2014-specific effects that may reduce the external validity of the study. 
+
+In addition, it was not the case that every state either adopted the Medicaid expansion in 2014 or not at all. Seven states implemented the expansion after January 2014 and before 2018. Here, I can account for the staggered rollout by coding the treatment based on the time that Medicaid was expanded rather than being a static event in January 2014. 
+
+I do this by making treatment proportional to the number of months in a year in which Medicaid was rolled out. For example, Michigan expanded Medicaid in April 2014, so an observation in Michigan in 2014 would have `treatment` proportional to $(13 - 4) / 12 = 0.75$. By contrast, if they had rolled it out in January, `treatment` would be proportional to $(13 - 1) / 12 = 1$. In that way, the multiplier is always between 0 and 1.
+
+Finally, I also provide controls that are a bit less parametric by interacting the `year` dummies with a binary variable on whether or not a state eventually implemented the expansion, and also interacting the `year` dummies with the pre-expansion uninsured rate. This is in contrast to the NBER paper, which only interacted those variables with a `POST` dummy, not the full range of year dummies. My method will control for any change in the difference in insurance rates between states that would eventually roll out the expansion and those that never do (in the sample time period). It does the same for states with a high pre-expansion uninsured rate vs. a low pre-expansion uninsured rate.
+
+The biggest disadvantage of my specification is that I don't have sub-state (PUMA) level data on pre-expansion uninsured rates, so I rely on state-level data. This could reduce the efficiency of my estimates.
+
+In the end, my specification looks like
+$$
+y_{iast} = \gamma_0 + \gamma_1(UNINSURED_{s}*YEAR_t) + \gamma_2(EXPANSION_s*YEAR_t) + \gamma_3(TREATMENT_{st}) + \text{CONTROLS} + \epsilon_{iast}
+$$
+The variables I use as controls are: 
+
+* Race
+
+* Sex
+
+* Age 
+
+* Real Income
+
+# My Results
+
+Here is the table of results from that specification applied to any coverage and to Medicaid alone, and using weighted and unweighted least squares:
+
+```{r weighting, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Three things happening here: I create race indicator dummies that are
+# slightly more granular than the vis. dataset. I use race indicators
+# over a single factor variable just for ease of creating aesthetic
+# regression outputs.
+
+# I also create an indicator variable for the pre-expansion uninsured rate. I then
+# create an indicator variable for the final treatment effect
+
+original <- c("California","Connecticut", "Colorado", "Delaware", "District of Columbia",
+              "Maryland", "Massachusetts", "Minnesota", "Nevada", "New Jersey",
+              "Hawaii", "Illinois", "New York", "North Dakota", "Oregon",
+              "Rhode island", "Vermont", "Washington", "West Virginia", "Arizona",
+              "Arkansas", "Kentucky", "Ohio", "New Mexico", "Iowa")
+
+eventually <- c(original, "Michigan", "New Hampshire", "Pennsylvania", "Indiana",
+                "Alaska", "Montana", "Louisiana")
+
+all_years <- all_years %>%
+  group_by(state) %>%
+  mutate(pre_uninsured = (1 - mean(hcovany[which(year == 2013)]))) %>%
+  ungroup()
+
+all_years <- all_years %>%
+  mutate(black      = if_else(race == 2, 1, 0),
+         AAPI       = if_else(race == 4 | race == 5 | race == 6, 1, 0),
+         white      = if_else(race == 1, 1, 0),
+         indigenous = if_else(race == 3, 1, 0),
+         other      = if_else(!black & !white & !AAPI & !indigenous, 1, 0),
+         year       = as.factor(year),
+         eventually = state %in% eventually,
+         treatment  = expansion * pre_uninsured)
+
+```
+
+```{r regressions, echo=FALSE, message=FALSE, warning=FALSE, eval=FALSE}
+# `biglm` is the same as `lm`, except it stores less information in memory.
+# Each `lm` took up 2.9GB on my computer before I switched.
+# This chunk isn't evaluated by default because it takes a long time
+# but it will run eventually if evaluated.
+any <- biglm(data = all_years, hcovany ~ treatment + year:eventually + 
+               year:pre_uninsured + year +
+               state + black + AAPI + indigenous + other + 
+               real_income + age + sex,
+             weights = ~perwt)
+
+
+medicaid <- biglm(data = all_years, hinscaid ~ treatment + 
+                    year:eventually + year:pre_uninsured + year + 
+                    state + black + AAPI + indigenous + other + 
+                    real_income + age + sex,
+                  weights = ~perwt)
+
+any_unweighted <- biglm(data = all_years, hinscaid ~ treatment + 
+                    year:eventually + year:pre_uninsured + year + 
+                    state + black + AAPI + indigenous + other + 
+                    real_income + age + sex)
+
+medicaid_unweighted <- biglm(data = all_years, hinscaid ~ treatment + 
+                    year:eventually + year:pre_uninsured + year + 
+                    state + black + AAPI + indigenous + other + 
+                    real_income + age + sex)
+
+```
+
+
+
+```{r table, echo=FALSE, message=FALSE, warning=FALSE, eval=FALSE}
+# The latex below is just copied and pasted from this code,
+# to allow the previous chunk not to have to run every time.
+texreg::texreg(list(any, medicaid, any_unweighted, medicaid_unweighted), 
+              file = "texreg.tex", 
+              omit.coef = "(year)|(state)",
+              custom.model.names = c("Any Insurance", "Medicaid", 
+              "Any Unweighted", "Medicaid Unweighted"),
+              custom.coef.names = c("(Intercept)", "Treatment", "Black",
+                                    "AAPI", "Indigenous", "Other Race",
+                                    "Real Income", "Age", "Sex"))
+```
+
+\begin{table}
+\begin{center}
+\begin{tabular}{l c c c c}
+\hline
+ & Any Insurance & Medicaid & Any Unweighted & Medicaid Unweighted \\
+\hline
+(Intercept) & $0.74^{***}$  & $0.10^{***}$  & $0.10^{***}$  & $0.10^{***}$  \\
+            & $(0.01)$      & $(0.00)$      & $(0.00)$      & $(0.00)$      \\
+Treatment   & $0.22^{***}$  & $0.26^{***}$  & $0.25^{***}$  & $0.25^{***}$  \\
+            & $(0.01)$      & $(0.01)$      & $(0.01)$      & $(0.01)$      \\
+Black       & $-0.03^{***}$ & $0.10^{***}$  & $0.11^{***}$  & $0.11^{***}$  \\
+            & $(0.00)$      & $(0.00)$      & $(0.00)$      & $(0.00)$      \\
+AAPI        & $0.01^{***}$  & $-0.01^{***}$ & $-0.01^{***}$ & $-0.01^{***}$ \\
+            & $(0.00)$      & $(0.00)$      & $(0.00)$      & $(0.00)$      \\
+Indigenous  & $-0.13^{***}$ & $0.10^{***}$  & $0.12^{***}$  & $0.12^{***}$  \\
+            & $(0.00)$      & $(0.00)$      & $(0.00)$      & $(0.00)$      \\
+Other Race  & $-0.13^{***}$ & $0.05^{***}$  & $0.06^{***}$  & $0.06^{***}$  \\
+            & $(0.00)$      & $(0.00)$      & $(0.00)$      & $(0.00)$      \\
+Real Income & $0.00^{***}$  & $-0.00^{***}$ & $-0.00^{***}$ & $-0.00^{***}$ \\
+            & $(0.00)$      & $(0.00)$      & $(0.00)$      & $(0.00)$      \\
+Age         & $0.00^{***}$  & $-0.00^{***}$ & $-0.00^{***}$ & $-0.00^{***}$ \\
+            & $(0.00)$      & $(0.00)$      & $(0.00)$      & $(0.00)$      \\
+Sex         & $0.06^{***}$  & $0.02^{***}$  & $0.01^{***}$  & $0.01^{***}$  \\
+            & $(0.00)$      & $(0.00)$      & $(0.00)$      & $(0.00)$      \\
+\hline
+Num. obs.   & $2080037$     & $2080037$     & $2080037$     & $2080037$     \\
+AIC         & $29006545.73$ & $22303097.10$ & $209464.66$   & $209464.66$   \\
+\hline
+\multicolumn{5}{l}{\scriptsize{$^{***}p<0.001$; $^{**}p<0.01$; $^{*}p<0.05$}}
+\end{tabular}
+\caption{Treatment Effect on Health Insurance Coverage}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+
+
+
+Unfortunately, my standard errors are not heteroskedasticity robust or clustered at the state level, as would be recommended. That is because my computer does not have enough memory to hold the robust covariance matrix for the regression. Therefore, you shouldn't take the small standard errors too literally.
+
+Focusing on the coefficient of interest, you can see that the Treatment effect is highly statistically significant in its effect on "Any Insurance" and on Medicaid. In addition, this effect is robust to whether or not I use the census weights to run Weighted Least Squares or do simple OLS.
+
+This coefficient isn't very interpretable, however. A better measure is the marginal effect of Medicaid expansion on insurance coverage for a state with an average pre-expansion uninsured rate. Here, that value is 0.1835, meaning that the marginal effect on any insurance coverage is 0.1835 * 0.2249 = 0.0413. 
+
+This means that for the average state, implementing the Medicaid expansion for a full year is expected to raise the proportion of the state that has insurance by 4.1 percentage points. For Medicaid specifically, the value is 0.1835 * 0.2555 = 0.0468, suggesting a marginal effect of 4.7 percentage points.
+
+These are highly economically significant results. Indiana had about an average pre-expansion uninsured rate and a population of 6.594 million in 2014. These results imply that about an additional 272,120 individuals would have been insured if the state had expanded the program in 2014. 
+
+In terms of uncertainty, the confidence interval on my regression coefficients are very tiny. If you take them seriously, the effect size is essentially unchanged from the lower bound to the upper bound: for the model of any coverage, the confidence interval is (0.199, 0.251), and for the model of Medicare alone it is (0.232, 0.279). However, as I mentioned the standard errors couldn't be adjusted for heteroskedasticity or within-state autocorrelation, so the actual confidence intervals could be quite a bit wider.
+
+How does this compare to the NBER paper that I discussed earlier? They found a coefficient on total health coverage of 0.144 in their preferred specification, for an implied marginal effect of 2.9 percentage points for the average community. This is smaller than my estimate by 1.2 percentage points. These values are certainly within the same ballpark, but given the high costs and benefits of Medicaid expansion, the discrepancy could have policy implications at the margin.
+
+# Conclusion
+
+My main goal here was to show how introducing more longitudinal variation in a differences-in-differences (in this case DDD) model, especially with staggered uptake of the treatment, can produce more robust results, both in terms of the identifying causal assumptions and in terms of external validity. To show this, I explored the impact of the ACA's Medicaid expansion on insurance coverage in the US. The end results were similar but quantitatively bigger than the original paper that studied this issue.
+
+
+
+# Citations
+
+## R Packages
+
+* R Core Team (2020). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria. URL https://www.R-project.org/.
+
+* Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2020). dplyr: A Grammar of Data Manipulation. R package version 1.0.2. https://CRAN.R-project.org/package=dplyr
+  
+* Hadley Wickham (2020). tidyr: Tidy Messy Data. R package version 1.1.2. https://CRAN.R-project.org/package=tidyr
+  
+* H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+  
+* Thomas Lumley (2020). biglm: Bounded Memory Linear and Generalized Linear Models. R package version 0.9-2.1. https://CRAN.R-project.org/package=biglm
+
+* Leifeld, Philip (2013). texreg: Conversion of Statistical Model Output in R to LaTeX and HTML Tables. Journal of Statistical Software, 55(8), 1-24. URL http://dx.doi.org/10.18637/jss.v055.i08.
+
+* Jim Hester and Hadley Wickham (2020). vroom: Read and Write Rectangular Text Data Quickly. R package version 1.3.2. https://CRAN.R-project.org/package=vroom
+  
+* Kevin Ushey, JJ Allaire, Hadley Wickham and Gary Ritchie (2020). rstudioapi:
+  Safely Access the RStudio API. R package version 0.13. https://CRAN.R-project.org/package=rstudioapi
+  
+* Achim Zeileis and Gabor Grothendieck (2005). zoo: S3 Infrastructure for Regular
+  and Irregular Time Series. Journal of Statistical Software, 14(6), 1-27. doi:10.18637/jss.v014.i06
+  
+## Data and Background
+
+* Steven Ruggles, Sarah Flood, Ronald Goeken, Josiah Grover, Erin Meyer, Jose Pacas and Matthew Sobek. IPUMS USA: Version 10.0 [dataset]. Minneapolis, MN: IPUMS, 2020. https://doi.org/10.18128/D010.V10.0
+  
+* U.S. Census Bureau (2020). Insurance / Demographic Information, 2008-2018 American Community Survey 1-year estimates. 
+
+* KFF’s State Health Facts: Status of State Action on the Medicaid Expansion Decision 2021, Kaiser Family Foundation. https://www.kff.org/health-reform/state-indicator/state-activity-around-expanding-medicaid-under-the-affordable-care-act/?currentTimeframe=0&sortModel=%7B%22colId%22:%22Location%22,%22sort%22:%22asc%22%7D#
+
+* What is the Medicaid ‘coverage gap’ and who does it affect? Norris, Louise, 15 November, 2020. https://www.healthinsurance.org/faqs/what-is-the-medicaid-coverage-gap-and-who-does-it-affect/
+
+* Medicaid expansion & what it means for you. HealthCare.Gov. https://www.healthcare.gov/medicaid-chip/medicaid-expansion-and-you/
+
+## Papers
+
+* Madeline Guth, Rachel Garfield, & Robin Rudowitz. The Effects of Medicaid Expansion under the ACA: Updated Findings from a Literature Review. March 17, 2020. https://www.kff.org/medicaid/report/the-effects-of-medicaid-expansion-under-the-aca-updated-findings-from-a-literature-review/
+
+* Charles Courtemanche, James Marton, Benjamin Ukert, Aaron Yelowitz & Daniela Zapata. Impacts of the Affordable Care Act on Health Insurance Coverage in Medicaid Expansion and Non-Expansion States. April 2016. NBER Working Papers Program.
+
+* Abraham, J.M., Royalty, A.B. & Drake, C. The impact of Medicaid expansion on employer provision of health insurance. Int J Health Econ Manag. 19, 317–340 (2019). https://doi.org/10.1007/s10754-018-9256-x
+  
