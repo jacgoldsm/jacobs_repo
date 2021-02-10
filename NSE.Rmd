@@ -16,7 +16,7 @@ knitr::opts_chunk$set(echo = TRUE,
 
 This document seeks to explain the basics of Non-standard Evaluation, a powerful tool use all over R, and particularly the `tidyverse` family of R extensions. The specific application of NSE to the `tidyverse` is sometimes called "tidy evaluation". It includes stylistic applications of tools available in base R as well as new machinery invented for use in `tidyverse` functions.
 
-```{r}
+```{r warning=FALSE, message=FALSE}
 library(rlang)
 library(magrittr)
 ```
