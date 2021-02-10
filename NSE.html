@@ -236,7 +236,7 @@ library(magrittr)</code></pre>
 <div id="types-of-evaluation" class="section level1">
 <h1>Types of Evaluation</h1>
 <p>R offers the user a lot of choices for how to evaluate language. Broadly, I’d like to break that down into four basic types: standard, mixed, lazy, and ultra-lazy. This table breaks them down in broad strokes, and then I will give implementation examples:</p>
-<p>The idea behind this table is that each row represents the value of <code>x + 5</code> in different situations. In situations where the value of <code>x</code> is fully evaluated, its value is 5.</p>
+<p>Every row of this table represents the result of adding 5 + 5 with various methods of evaluation:</p>
 <table>
 <thead>
 <tr class="header">
@@ -341,10 +341,10 @@ try(g(y + 5))</code></pre>
 <pre class="r"><code>f &lt;- function(arg) enexpr(arg)
 g &lt;- function(x) f(enexpr( x ))
 
-try(g(y + 5))</code></pre>
+g(y + 5)</code></pre>
 <pre><code>#&gt; enexpr(x)</code></pre>
 <p>Here, <code>f()</code> wants an unquoted expression. <code>!!</code> doesn’t work because it tries to evaluate <code>y + 5</code> immediately. <code>enexpr()</code> doesn’t work because it produces <em>quoted</em> language, corresponding to “ultra-lazy evaluation”— absolutely nothing is evaluated, not even the expression <code>enexpr(x)</code>.</p>
-<p>To get our desired “lazy” — but not “ultra-lazy” evaluation, we can combine <code>enexpr()</code> and <code>!!</code>:</p>
+<p>To get our desired “lazy” — but not “ultra-lazy” — evaluation, we can combine <code>enexpr()</code> and <code>!!</code>:</p>
 <pre class="r"><code>f &lt;- function(arg) enexpr(arg)
 g &lt;- function(x) f(!! enexpr( x ))
 
@@ -422,7 +422,7 @@ make_area(iris, Sepal.Area, Sepal.Length, Sepal.Width)</code></pre>
 <p>So far, we have fallen short of true “Tidy Evaluation”. To fix that, let’s introduce a final concept: quosures.</p>
 <div id="quosures" class="section level3">
 <h3>Quosures</h3>
-<p>Quosures are a bit more complicated. They exist mainly to distinguish between data variables and environment variables. In particular, consider one line of code from <code>mutate</code>:</p>
+<p>Quosures exist mainly to distinguish between data variables and environment variables. In particular, consider one line of code from <code>mutate</code>:</p>
 <pre class="r"><code>data[[nm]] &lt;- eval(expr[[1]], envir = data)</code></pre>
 <p><code>base::eval()</code> creates a temporary environment out of <code>data</code>, which is a data frame. This isn’t exactly desirable because an environment contains more information than a data frame: it also includes a pointer to an enclosing environment, where symbols will be searched for if they are not found in frame. Ideally, we want this to be constant across all function calls, not created on the fly during evaluation. This is where quosures come in.</p>
 <p>Quosures are like expressions that store the environment in which they are created. They are created with <code>rlang::quo()</code> and <code>rlang::enquo()</code>, and they are evaluated with <code>rlang::eval_tidy()</code>. Here is an example of a quosure:</p>

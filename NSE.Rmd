@@ -24,7 +24,7 @@ library(magrittr)
 
 R offers the user a lot of choices for how to evaluate language. Broadly, I'd like to break that down into four basic types: standard, mixed, lazy, and ultra-lazy. This table breaks them down in broad strokes, and then I will give implementation examples:
 
-The idea behind this table is that each row represents the value of `x + 5` in different situations. In situations where the value of `x` is fully evaluated, its value is 5.
+Every row of this table represents the result of adding 5 + 5 with various methods of evaluation:
 
 ```{r, echo=FALSE}
 t <- tibble::tribble(
@@ -116,11 +116,11 @@ What about this?
 f <- function(arg) enexpr(arg)
 g <- function(x) f(enexpr( x ))
 
-try(g(y + 5))
+g(y + 5)
 ```
 Here, `f()` wants an unquoted expression. `!!` doesn't work because it tries to evaluate `y + 5` immediately. `enexpr()` doesn't work because it produces *quoted* language, corresponding to "ultra-lazy evaluation"— absolutely nothing is evaluated, not even the expression `enexpr(x)`.
 
-To get our desired "lazy" — but not "ultra-lazy" evaluation, we can combine `enexpr()` and `!!`:
+To get our desired "lazy" — but not "ultra-lazy" — evaluation, we can combine `enexpr()` and `!!`:
 ```{r}
 f <- function(arg) enexpr(arg)
 g <- function(x) f(!! enexpr( x ))
@@ -182,7 +182,7 @@ So far, we have fallen short of true "Tidy Evaluation". To fix that, let's intro
 
 ### Quosures
 
-Quosures are a bit more complicated. They exist mainly to distinguish between data variables and environment variables. In particular, consider one line of code from `mutate`:
+Quosures exist mainly to distinguish between data variables and environment variables. In particular, consider one line of code from `mutate`:
 ```r
 data[[nm]] <- eval(expr[[1]], envir = data)
 ```
