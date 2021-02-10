@@ -1,0 +1,252 @@
+---
+title: "Non-standard Evaluation"
+output: 
+  html_document :
+    toc: true
+  
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      comment = "#>")
+```
+
+# Introduction
+
+This document seeks to explain the basics of Non-standard Evaluation, a powerful tool use all over R, and particularly the `tidyverse` family of R extensions. The specific application of NSE to the `tidyverse` is sometimes called "tidy evaluation". It includes stylistic applications of tools available in base R as well as new machinery invented for use in `tidyverse` functions.
+
+```{r}
+library(rlang)
+library(magrittr)
+```
+# Types of Evaluation
+
+R offers the user a lot of choices for how to evaluate language. Broadly, I'd like to break that down into four basic types: standard, mixed, lazy, and ultra-lazy. This table breaks them down in broad strokes, and then I will give implementation examples:
+
+The idea behind this table is that each row represents the value of `x + 5` in different situations. In situations where the value of `x` is fully evaluated, its value is 5.
+
+```{r, echo=FALSE}
+t <- tibble::tribble(
+     ~Type,        ~Result,
+     "Standard",    "10",
+     "Mixed",      "5 + 5",
+     "Lazy",       "x + 5",
+     "Ultra-lazy", "x"
+)
+
+knitr::kable(t)
+```
+
+## Elaboration
+
+### Standard Evaluation — Everything Evaluated
+
+```{r}
+f <- function(x) x
+x <- 5
+f(x + 5)
+```
+### Mixed Evaluation — `x` Evaluated, `5 + 5` Not Evaluated
+
+```{r}
+f <- function(x) enexpr(x)
+x <- 5
+f(!! x + 5)
+```
+
+### Lazy Evaluation — `x + 5` Not Evaluated
+
+```{r}
+f <- function(x) enexpr(x)
+f(x + 5)
+```
+
+`==`
+
+### Lazy Evaluation, redux — `x` Evaluated into `x + 5`, Which is Not Evaluated
+
+```{r}
+f <- function(x) enexpr(x)
+x <- expr(x + 5)
+f(!! x)
+```
+
+### Ultra-Lazy Evaluation — Nothing Evaluated
+
+```{r}
+f <- function(x) enexpr(x)
+x <- expr(x + 5)
+f(x)
+```
+
+## Bang-Bang (`!!`)
+
+* Forces a *name* to become a *value*, e.g. if `x <- 5`, `!! x` is 5. This is like going from **Lazy Evaluation** to **Mixed Evaluation**
+
+* Forces a *named expression* to become an *expression*, e.g. if `x <- expr(y)`, then `!! x` is the symbol `y`. This is like going from **Ultra-Lazy Evaluation** to **Lazy Evaluation**.
+
+### Splicing
+
+Splicing is a simple variation on `!!`. It uses the `!!!`(Bang-Bang-Bang) operator. It is used to take a list, make it into a series of comma-separated function arguments, and force evaluation of each of those arguments. Consider:
+```{r}
+li <- list(x = 1, y = 2, z = 3)
+exprs(!!! li) # is equivalent to 
+# exprs(x = 1, y = 2, z = 3)
+```
+
+## Inside a function
+
+This is likely not what we want the behavior of this nested function to be:
+```{r}
+f <- function(arg) enexpr(arg)
+g <- function(x) f(x)
+
+g(y + 5)
+```
+Why doesn't this fix work?
+```{r}
+f <- function(arg) enexpr(arg)
+g <- function(x) f(!! x)
+
+try(g(y + 5))
+```
+What about this?
+```{r}
+f <- function(arg) enexpr(arg)
+g <- function(x) f(enexpr( x ))
+
+try(g(y + 5))
+```
+Here, `f()` wants an unquoted expression. `!!` doesn't work because it tries to evaluate `y + 5` immediately. `enexpr()` doesn't work because it produces *quoted* language, corresponding to "ultra-lazy evaluation"— absolutely nothing is evaluated, not even the expression `enexpr(x)`.
+
+To get our desired "lazy" — but not "ultra-lazy" evaluation, we can combine `enexpr()` and `!!`:
+```{r}
+f <- function(arg) enexpr(arg)
+g <- function(x) f(!! enexpr( x ))
+
+g(y + 5)
+```
+The "curly-curly" operator `{{ }}` works almost the same as `!! enexpr()`:
+
+```{r}
+f <- function(arg) quo_get_expr(enexpr(arg))
+g <- function(x) f({{ x }})
+
+g(y + 5)
+```
+
+However, it results in a `quosure`, not an expression, which is the reason for `quo_get_expr()` here. We will cover quosures later.
+
+# Putting it together
+
+Let's make a toy version of `dplyr::mutate()` for the purposes of this example, so that it's clear how everything is working. This version will only accept a single expression, unlike the real `mutate`:
+
+```{r}
+mutate <- function(data, ...) {
+  expr <- enexprs(...)
+  nm <- names(expr)[[1]]
+  data[[nm]] <- eval(expr[[1]], envir = data)
+  data[1:10,]
+}
+
+iris %>% mutate(Sepal.Area = Sepal.Length * Sepal.Width)
+```
+Let's look at how this works. The expression in `...` is `Sepal.Area = Sepal.Length * Sepal.Width`. This is defused in the first line of the function body. `rlang::enexprs()` returns a list, in this case of length one. The name of the sole element is `Sepal.Area`. Since, `base::names()` returns a character vector, and `[[ ]]` expects a string, this can be used to make our new variable.
+
+Next, `base::eval()` evaluates our expression in a specified environment. An environment is a special data structure, but `eval()` allows us to use a list or data.frame as a temporary environment. This means that our `data` argument (iris) will be where R looks for variables to evaluate. Since `Sepal.Length` and `Sepal.Width` are variables in `iris`, the code works. We then return our modified `iris` as the value of the function.
+
+But how would we pass a *data* variable name to `mutate` stored in another variable? Well, we can use evaluation tricks:
+```{r}
+length <- expr(Sepal.Length)
+width <- expr(Sepal.Width)
+area <- expr(Sepal.Area)
+iris %>% mutate(!! area := !! length * !! width)
+
+```
+Notice that we use `:=` instead of `=` in the `mutate` expression. This is because `=` requires a raw symbol on the left-hand side. To solve this, `rlang` has the `:=` (walrus) operator, which allows for forcing operators on the left-hand side.
+
+We can almost use the `{{ }}` function to embed our `mutate` into a function. However, we need to use slightly different syntax because `{{ }}` produces a *quosure*, which will be our next topic. Instead, we can use a close cousin, `!! enexpr()`, that produces a normal expression.
+
+```{r}
+make_area <- function(data, area, length, width) {
+  data %>% mutate(!! enexpr(area) := !! enexpr(length)  * !! enexpr(width ))
+}
+
+make_area(iris, Sepal.Area, Sepal.Length, Sepal.Width)
+```
+
+## Making it Tidy
+
+So far, we have fallen short of true "Tidy Evaluation". To fix that, let's introduce a final concept: quosures.
+
+### Quosures
+
+Quosures are a bit more complicated. They exist mainly to distinguish between data variables and environment variables. In particular, consider one line of code from `mutate`:
+```r
+data[[nm]] <- eval(expr[[1]], envir = data)
+```
+`base::eval()` creates a temporary environment out of `data`, which is a data frame. This isn't exactly desirable because an environment contains more information than a data frame: it also includes a pointer to an enclosing environment, where symbols will be searched for if they are not found in frame. Ideally, we want this to be constant across all function calls, not created on the fly during evaluation. This is where quosures come in.
+
+Quosures are like expressions that store the environment in which they are created. They are created with `rlang::quo()` and `rlang::enquo()`, and they are evaluated with `rlang::eval_tidy()`. Here is an example of a quosure:
+```{r}
+y <- -100
+f <- function(x) {
+  y <- 10
+  x <- enquo(x)
+  print(x)
+  eval_tidy(x)
+}
+
+f(y + 100)
+```
+Why is the result 0? The clue is in the printed quosure, which says that it evaluates in the global environment. Even though the local variable `y` is initialized as 10 in our function, its value remains -100 in the global environment. When `eval_tidy()` is called, it evaluates the expression in the specified environment.
+
+## A More Tidy Mutate
+
+Let's put all this together and create a fully tidy mutate. This will do the same thing (more or less) as `dplyr::mutate()`, although without `tidyselect` semantics:
+
+```{r}
+mutate_tidy <- function(data, ...) {
+  expr <- enquos(...)
+  nm <- names(expr)
+  for (name in nm) {
+    data[[name]] <- eval_tidy(expr[[name]], data)
+  }
+  data[1:10,]
+}
+```
+
+`mutate_tidy()` works in much the same way as `mutate()`. There are two differences: first, instead of just taking the first element of `expr`, it cycles through all of them, evaluating each expression. Second, it creates a list of quosures, rather than base expressions. 
+
+The quosures are then evaluated using a "data mask". The data mask is different from a normal environment because it doesn't contain a pointer to an enclosing environment. Instead, it uses the environment contained in the quosure as its enclosing environment. This makes the behavior more consistent across function calls.
+
+We can do the same things with `mutate_tidy()` as we did with `mutate()`:
+
+```{r}
+iris %>% mutate_tidy(Sepal.Area = Sepal.Length * Sepal.Width, SPECIES = toupper(Species))
+```
+With forcing:
+```{r}
+length <- expr(Sepal.Length)
+width <- expr(Sepal.Width)
+area <- expr(Sepal.Area)
+upper <- expr(toupper(Species))
+spec <- expr(SPECIES)
+
+iris %>% mutate_tidy(!! area := !! length * !! width, !! spec := !! upper)
+```
+In a function — now we can use `{{ }}`:
+```{r}
+make_area_tidy <- function(data, area, length, width, spec, upper) {
+  data %>% 
+    mutate_tidy( {{ area }} := {{ length }}  * {{ width }}, {{ spec }} := {{ upper }})
+}
+
+make_area_tidy(iris, Sepal.Area, Sepal.Length, Sepal.Width, Species, toupper(Species))
+
+```
+
+# Conclusion
+
+Hopefully, this document was illuminating as to the basics of Non-standard evaluation and Tidy Evaluation. To learn more, I recommend Hadley Wickham's book [Advanced R](https://adv-r.hadley.nz/rcpp.html), where he covers evaluation in chapters 17-20.
