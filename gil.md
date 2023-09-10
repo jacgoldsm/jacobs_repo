@@ -42,4 +42,35 @@ In part, removing the GIL took so long because of backwards compatibility concer
 (modestly) rewritten to make use of new APIs introduced with the excission of the GIL. In some cases, C extension authors relied on the GIL to manage their own program's threadsafety
 guarantees, and these programs will need to be modified to use their own locks.
 
-This isn't the biggest challenge with excising the GIL, however. The biggest problem is reference counting. 
+This isn't the biggest challenge with excising the GIL, however. The biggest problem is reference counting.
+
+## Reference Counting and the Garbage Collector
+Python, like most modern languages, has automatic memory management. That means that the memory associated with an object is automatically freed by
+Python when the object is no longer accessible without having to be explicitly freed by the programmer. 
+
+The primary method of memory management in Python uses a scheme called [Reference counting](https://en.wikipedia.org/wiki/Reference_counting).
+In Python, every variable (except [immortal objects](https://peps.python.org/pep-0683/)) has an integer
+stored within its C structure. That integer, called the reference count, represents the number of references that the program holds to the object.
+Follow along with the following code:
+
+```python
+x = "foo" # refcount = 1
+y = x # refcount = 2
+del x # refcount = 1
+del y # refcount = 0; object is destroyed
+```
+Once the refcount of an object hits 0, the object is immediately destroyed and the memory owned by the object is freed.
+This scheme, however, clearly breaks with multiple threads where the reference count is not being constantly syncronized between the threads:
+
+```python
+from threading import Thread
+
+x = "foo"
+t = Thread(target=lambda: print(x), args=[])
+t.run()
+del x
+```
+In that code, x is deleted while the code in `t` is still running, triggering the deletion of the object at the same time as `t` was attempting
+to print it, potentially causing the interpreter to crash as `t` attempts to access a block of memory that's already been cleared. Note that
+the GIL would prevent this from happening; `t` couldn't start printing `x` until the main thread released the GIL, at which point `x` is already
+cleared, and so the `print` call in `t` would raise a `NameError` and not crash.
