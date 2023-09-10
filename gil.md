@@ -74,3 +74,26 @@ In that code, x is deleted while the code in `t` is still running, triggering th
 to print it, potentially causing the interpreter to crash as `t` attempts to access a block of memory that's already been cleared. Note that
 the GIL would prevent this from happening; `t` couldn't start printing `x` until the main thread released the GIL, at which point `x` is already
 cleared, and so the `print` call in `t` would raise a `NameError` and not crash.
+
+## Biased Reference Counting
+It is possible to make reference counting threadsafe by simply synchronizing the reference count after every operation. However, the overhead of
+this would be unacceptably high. The solution described in PEP 703 is an implementation of [Biased reference counting](https://dl.acm.org/doi/abs/10.1145/3243176.3243195). Sam Gross describes the idea:
+
+> [Biased reference counting] is based on the observation that most objects are only accessed by a single thread, even in multi-threaded programs. Each
+> object is associated with an owning thread (the thread that created it). Reference counting operations from the owning thread use non-atomic
+> instructions to modify a “local” reference count. Other threads use atomic instructions to modify a “shared” reference count. This design avoids many
+> atomic read-modify-write operations that are expensive on contemporary processors.
+
+Biased reference counting adds two counters to each object: one for the thread that owns the object, and another for all the other threads. The counter
+held by the owning thread is not threadsafe. However, when the owning thread's count reaches zero, the object is not automatically deallocated. Instead,
+the owning thread merges its counter with the shared one. If the combined count is zero, the object is deallocated, otherwise all remaining reference
+counting is done on the shared reference counter in a threadsafe (and thus slower) manner. 
+
+That can't be the only way for an object to be deallocated, since other threads are capable of removing references to the object that were added by
+the owning thread. To account for this, if the shared reference counter drops below zero (meaning non-owning threads have destroyed more references than
+they have created), then whichever non-owning thread is responsible for making the shared reference count go negative places the object in a queue 
+belonging to the owning thread. For each object in its queue, the owning thread then merges its own reference count and the shared reference count.
+Just as in the previous case, if the merged reference count is zero, the object is deallocated, otherwise the program falls back to the slow,
+fully synchronizing reference counting scheme.
+
+## Other Changes
