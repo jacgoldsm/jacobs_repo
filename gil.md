@@ -15,7 +15,7 @@ shared objects in a multithreaded programming environment. In its simplest form,
 from the object, a thread must "acquire" the mutex. Since only one thread can acquire the mutex at once, only one thread can access the object at one time.
 
 The GIL is a lock applied to a specific object, the [interpreter state](https://docs.python.org/3/c-api/init.html#c.PyInterpreterState). 
-The interpreter state is a C struct that contains a reference to every Python object that is accessible from the current runtime state. Usually, there is only one runtime state per process,
+The interpreter state is an object that contains a reference to every Python object that is accessible from the current runtime state. Usually, there is only one runtime state per process,
 however it is possible to create additional "subinterpreters" that are logically isolated from the main interpreter state. In general, the use of subinterpreters won't be relevant to this post,
 so we'll use the case of a single main interpreter in examples.
 
