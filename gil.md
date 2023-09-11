@@ -86,10 +86,9 @@ from threading import Thread
 x = "foo"
 def f():
     do_stuff() # we don't know how long this will take
-    global y
     y = x
 
-t = Thread(target=f, args=[])
+t = Thread(target=f)
 t.start()
 del x
 ```
